@@ -2,7 +2,6 @@
 ### Monitoring Solution with Event Streaming, Message Brokering, and Metrics Visualization
 ---
 
-[Rest of the documentation remains the same...]
 ## Table of Contents
 1. System Requirements
 2. Component Installation
