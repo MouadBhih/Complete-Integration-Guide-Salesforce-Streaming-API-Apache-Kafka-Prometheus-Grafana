@@ -1,67 +1,116 @@
-# Salesforce Streaming API to Grafana Monitoring - Complete Setup Guide
+# Complete Integration Guide: Salesforce Streaming API → Apache Kafka → Prometheus → Grafana
+### Monitoring Solution with Event Streaming, Message Brokering, and Metrics Visualization
+---
 
+[Rest of the documentation remains the same...]
 ## Table of Contents
-1. Salesforce Configuration
-2. Python Environment Setup
-3. Kafka Setup
-4. Prometheus Setup
-5. Grafana Setup
-6. Complete System Integration
+1. System Requirements
+2. Component Installation
+3. Salesforce Configuration
+4. Python Setup
+5. Kafka Setup
+6. Kafka Exporter Setup
+7. Prometheus Setup
+8. Grafana Setup
+9. Integration and Testing
+10. Monitoring and Maintenance
+11. Troubleshooting
 
-## 1. Salesforce Configuration
+## 1. System Requirements
 
-### 1.1. Create Connected App
+### 1.1. Hardware Requirements
+- CPU: 2+ cores recommended
+- RAM: 8GB minimum
+- Disk Space: 20GB free space
+- Network: Stable internet connection
+
+### 1.2. Software Prerequisites
+- Windows 10/11
+- Administrative privileges
+- Java 11 or higher installed
+- Python 3.8 or higher
+- Web browser (Chrome/Firefox recommended)
+
+## 2. Component Installation
+
+### 2.1. Java Installation (if not installed)
+1. Download OpenJDK 11:
+   - Visit https://adoptium.net/
+   - Download Windows MSI installer
+2. Install:
+   - Run the MSI installer
+   - Select "Add to PATH" option
+3. Verify:
+```cmd
+java -version
+```
+
+### 2.2. Python Installation
+1. Download Python:
+   - Visit https://www.python.org/downloads/
+   - Download latest Python 3.x Windows installer
+2. Install:
+   - Run installer
+   - Check "Add Python to PATH"
+   - Choose "Customize installation"
+   - Select all optional features
+3. Verify:
+```cmd
+python --version
+pip --version
+```
+
+## 3. Salesforce Configuration
+
+### 3.1. Create Connected App
 1. Login to Salesforce Setup
 2. Navigate to App Manager → New Connected App
 3. Configure:
-   ```
-   Connected App Name: Kafka Integration
-   API Name: Kafka_Integration
-   Contact Email: [your email]
-   Enable OAuth Settings: Yes
-   Callback URL: http://localhost:8080/callback
-   Selected OAuth Scopes:
-   - Access and manage your data (api)
-   - Perform requests at any time (refresh_token)
-   - Manage user data via APIs (api)
-   ```
-4. Save the Connected App
-5. Note down:
-   - Consumer Key (client_id)
+```
+Connected App Name: Kafka Integration
+API Name: Kafka_Integration
+Contact Email: [your email]
+Enable OAuth Settings: Yes
+Callback URL: http://localhost:8080/callback
+Selected OAuth Scopes:
+- Access and manage your data (api)
+- Perform requests at any time (refresh_token)
+- Manage user data via APIs (api)
+```
+4. Save and note credentials:
+   - Consumer Key
    - Consumer Secret
+   - Security Token
 
-### 1.2. Create Platform Event
+### 3.2. Create Platform Event
 1. Setup → Platform Events → New Platform Event
-2. Configure:
-   ```
-   Label: Monitoring Event
-   Plural Label: Monitoring Events
-   Object Name: Monitoring_Event__e
-   ```
-3. Add Custom Fields:
-   ```
-   Field Label: Metric Name
-   Field Name: Metric_Name__c
-   Type: Text(255)
-   
-   Field Label: Metric Value
-   Field Name: Metric_Value__c
-   Type: Number(18, 2)
-   
-   Field Label: Timestamp
-   Field Name: Timestamp__c
-   Type: DateTime
-   ```
-4. Save the Platform Event
+2. Configure event:
+```
+Label: Monitoring Event
+Plural Label: Monitoring Events
+Object Name: Monitoring_Event__e
+```
+3. Add fields:
+```
+Field 1:
+- Label: Metric Name
+- API Name: Metric_Name__c
+- Type: Text(255)
 
-## 2. Python Environment Setup
+Field 2:
+- Label: Metric Value
+- API Name: Metric_Value__c
+- Type: Number(18, 2)
 
-### 2.1. Install Python Requirements
-```bash
-pip install simple-salesforce aiosfstream kafka-python requests
+Field 3:
+- Label: Timestamp
+- API Name: Timestamp__c
+- Type: DateTime
 ```
 
-### 2.2. Create Project Structure
+## 4. Python Setup
+
+### 4.1. Create Project Structure
 ```
 salesforce-monitoring/
 ├── config/
@@ -70,10 +119,17 @@ salesforce-monitoring/
 │   ├── __init__.py
 │   ├── salesforce_listener.py
 │   └── kafka_producer.py
+├── logs/
 └── requirements.txt
 ```
 
-### 2.3. Create Configuration File (config/settings.json)
+### 4.2. Install Dependencies
+```cmd
+pip install simple-salesforce aiosfstream kafka-python requests
+```
+
+### 4.3. Configuration Files
+settings.json:
 ```json
 {
     "salesforce": {
@@ -91,262 +147,220 @@ salesforce-monitoring/
 }
 ```
 
-### 2.4. Create Main Script (src/salesforce_listener.py)
-```python
-import json
-import asyncio
-from aiosfstream import Client
-from simple_salesforce import Salesforce
-from kafka import KafkaProducer
-import logging
+## 5. Kafka Setup
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+### 5.1. Download and Install Kafka
+1. Download Kafka:
+   - Visit https://kafka.apache.org/downloads
+   - Download latest binary for Windows
+2. Extract to `C:\kafka`
 
-class SalesforceEventListener:
-    def __init__(self, config_path):
-        with open(config_path) as f:
-            self.config = json.load(f)
-        
-        self.producer = self.create_kafka_producer()
-        self.sf = self.create_salesforce_client()
-
-    def create_kafka_producer(self):
-        return KafkaProducer(
-            bootstrap_servers=self.config['kafka']['bootstrap_servers'],
-            value_serializer=lambda x: json.dumps(x).encode('utf-8')
-        )
-
-    def create_salesforce_client(self):
-        return Salesforce(
-            username=self.config['salesforce']['username'],
-            password=self.config['salesforce']['password'],
-            security_token=self.config['salesforce']['security_token'],
-            consumer_key=self.config['salesforce']['consumer_key'],
-            consumer_secret=self.config['salesforce']['consumer_secret'],
-            domain=self.config['salesforce']['domain']
-        )
-
-    async def process_event(self, message):
-        try:
-            logger.info(f"Processing event: {message}")
-            self.producer.send(
-                self.config['kafka']['topic'],
-                value={
-                    'event_type': 'Monitoring_Event__e',
-                    'data': message,
-                    'timestamp': message.get('event').get('createdDate')
-                }
-            )
-            logger.info("Event sent to Kafka")
-        except Exception as e:
-            logger.error(f"Error processing event: {e}")
-
-    async def start_listening(self):
-        client = Client(
-            self.sf.session_id,
-            self.sf.instance_url,
-        )
-
-        try:
-            await client.open()
-            logger.info("Connected to Salesforce Streaming API")
-            
-            async for message in client.subscribe('/event/Monitoring_Event__e'):
-                await self.process_event(message)
-                
-        except Exception as e:
-            logger.error(f"Streaming error: {e}")
-        finally:
-            await client.close()
-
-def main():
-    listener = SalesforceEventListener('config/settings.json')
-    asyncio.run(listener.start_listening())
-
-if __name__ == "__main__":
-    main()
+### 5.2. Configure Kafka
+1. Edit `C:\kafka\config\server.properties`:
+```properties
+listeners=PLAINTEXT://localhost:9092
+log.dirs=C:/kafka/logs
 ```
 
-## 3. Kafka Setup
-
-### 3.1. Start Kafka Environment (Windows)
-```cmd
-# Start Zookeeper
-cd C:\kafka
-.\bin\windows\zookeeper-server-start.bat .\config\zookeeper.properties
-
-# Start Kafka
-cd C:\kafka
-.\bin\windows\kafka-server-start.bat .\config\server.properties
+2. Edit `C:\kafka\config\zookeeper.properties`:
+```properties
+dataDir=C:/kafka/zookeeper-data
 ```
 
-### 3.2. Create Kafka Topic
-```cmd
-.\bin\windows\kafka-topics.bat --create --topic salesforce_events --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
+### 5.3. Create Start Scripts
+create-kafka-start.bat:
+```batch
+@echo off
+start "Zookeeper" cmd /k "C:\kafka\bin\windows\zookeeper-server-start.bat C:\kafka\config\zookeeper.properties"
+timeout /t 10
+start "Kafka" cmd /k "C:\kafka\bin\windows\kafka-server-start.bat C:\kafka\config\server.properties"
 ```
 
-## 4. Prometheus Setup
+## 6. Kafka Exporter Setup
 
-### 4.1. Create Prometheus Configuration
-Create `prometheus.yml` in C:\prometheus:
+### 6.1. Install Kafka Exporter
+1. Download:
+   - Visit https://github.com/danielqsj/kafka_exporter/releases
+   - Download latest Windows release
+2. Extract to `C:\kafka_exporter`
+
+### 6.2. Configure Kafka Exporter
+Create `start-exporter.bat`:
+```batch
+@echo off
+cd C:\kafka_exporter
+kafka_exporter.exe --kafka.server=localhost:9092
+```
+
+## 7. Prometheus Setup
+
+### 7.1. Install Prometheus
+1. Download:
+   - Visit https://prometheus.io/download/
+   - Download latest Windows build
+2. Extract to `C:\prometheus`
+
+### 7.2. Configure Prometheus
+Create `C:\prometheus\prometheus.yml`:
 ```yaml
 global:
   scrape_interval: 15s
+  evaluation_interval: 15s
 
 scrape_configs:
   - job_name: 'kafka'
     static_configs:
       - targets: ['localhost:9308']
+    metrics_path: '/metrics'
 ```
 
-### 4.2. Create Prometheus Start Script
+### 7.3. Create Start Script
 Create `start-prometheus.bat`:
 ```batch
+@echo off
 cd C:\prometheus
 prometheus.exe --config.file=prometheus.yml
 ```
 
-## 5. Grafana Setup
+## 8. Grafana Setup
 
-### 5.1. Install Prometheus Plugin
+### 8.1. Install Grafana
+1. Download:
+   - Visit https://grafana.com/grafana/download
+   - Download Windows installer (.msi)
+2. Install:
+   - Run MSI installer
+   - Complete installation wizard
+
+### 8.2. Install Plugins
 ```cmd
 grafana-cli plugins install grafana-prometheus-datasource
 ```
 
-### 5.2. Configure Data Source
-1. Open Grafana (http://localhost:3000)
-2. Go to Configuration → Data Sources
-3. Add Prometheus data source
-4. Configure:
-   ```
-   Name: Prometheus
-   URL: http://localhost:9090
-   Access: Browser
-   ```
-
-### 5.3. Create Dashboard
-1. Create New Dashboard
-2. Add Panel
-3. Query:
-```
-rate(kafka_topic_messages_total{topic="salesforce_events"}[5m])
-```
-
-### 5.4. Sample Dashboard JSON
-```json
-{
-  "annotations": {
-    "list": []
-  },
-  "editable": true,
-  "panels": [
-    {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "showPoints": "never",
-            "spanNulls": false
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 80 }
-            ]
-          },
-          "unit": "events/sec"
-        }
-      },
-      "title": "Salesforce Events Rate",
-      "type": "timeseries"
-    }
-  ],
-  "refresh": "5s",
-  "schemaVersion": 30,
-  "title": "Salesforce Events Monitor",
-  "version": 1
-}
-```
-
-## 6. Complete System Integration
-
-### 6.1. Start Order
-1. Start Kafka and Zookeeper
-2. Start Prometheus
-3. Start Grafana
-4. Run Python script
-
-### 6.2. Verification Steps
-1. Verify Kafka Consumer:
+### 8.3. Configure Grafana
+1. Start Grafana service:
 ```cmd
-.\bin\windows\kafka-console-consumer.bat --topic salesforce_events --from-beginning --bootstrap-server localhost:9092
+net start Grafana
 ```
 
-2. Check Prometheus Metrics:
-- Open http://localhost:9090
-- Query: `kafka_topic_messages_total`
+2. Access web interface:
+   - Open http://localhost:3000
+   - Default login: admin/admin
+   - Change password when prompted
 
-3. Verify Grafana Dashboard:
+### 8.4. Add Data Source
+1. Configuration → Data Sources
+2. Add Prometheus
+3. Configure:
+```
+Name: Prometheus
+URL: http://localhost:9090
+Access: Browser
+```
+
+## 9. Integration and Testing
+
+### 9.1. Start Order
+Create `start-all.bat`:
+```batch
+@echo off
+echo Starting Kafka...
+start "Kafka" cmd /k "C:\kafka\bin\windows\zookeeper-server-start.bat C:\kafka\config\zookeeper.properties"
+timeout /t 10
+start "Kafka" cmd /k "C:\kafka\bin\windows\kafka-server-start.bat C:\kafka\config\server.properties"
+timeout /t 10
+
+echo Starting Kafka Exporter...
+start "Kafka Exporter" cmd /k "C:\kafka_exporter\start-exporter.bat"
+timeout /t 5
+
+echo Starting Prometheus...
+start "Prometheus" cmd /k "C:\prometheus\start-prometheus.bat"
+timeout /t 5
+
+echo Starting Grafana...
+net start Grafana
+
+echo Starting Python Script...
+python src/salesforce_listener.py
+```
+
+### 9.2. Verification Steps
+1. Check Kafka:
+```cmd
+C:\kafka\bin\windows\kafka-topics.bat --list --bootstrap-server localhost:9092
+```
+
+2. Verify Prometheus:
+- Open http://localhost:9090/targets
+- Check if Kafka target is up
+
+3. Test Grafana:
 - Open http://localhost:3000
-- Check data is flowing in dashboard panels
+- Verify Prometheus data source
 
-### 6.3. Error Handling and Logging
-The Python script includes logging. Check the console output for:
-- Connection status
-- Event processing
-- Error messages
+## 10. Monitoring and Maintenance
 
-### 6.4. Monitoring Health
-1. Kafka Health:
-```cmd
-.\bin\windows\kafka-topics.bat --describe --topic salesforce_events --bootstrap-server localhost:9092
+### 10.1. Key Metrics to Monitor
+1. Kafka Metrics:
+```promql
+# Message Rate
+rate(kafka_topic_partition_current_offset{topic="salesforce_events"}[5m])
+
+# Consumer Lag
+kafka_consumergroup_lag{topic="salesforce_events"}
+
+# Partition Count
+kafka_topic_partitions{topic="salesforce_events"}
 ```
 
-2. Prometheus Health:
-- http://localhost:9090/targets
+### 10.2. Log Locations
+```
+Kafka: C:\kafka\logs
+Prometheus: C:\prometheus\data
+Grafana: C:\Program Files\GrafanaLabs\grafana\data\log
+Python: logs/salesforce_listener.log
+```
 
-3. Grafana Health:
-- http://localhost:3000/health
+## 11. Troubleshooting
 
-## 7. Troubleshooting
+### 11.1. Common Issues
 
-### 7.1. Common Issues
-1. Salesforce Connection:
-- Check credentials
-- Verify OAuth settings
-- Confirm API version
+#### Kafka Won't Start
+1. Check Java installation
+2. Verify ports 2181 and 9092 are free:
+```cmd
+netstat -ano | findstr :2181
+netstat -ano | findstr :9092
+```
 
-2. Kafka Issues:
-- Verify Zookeeper is running
-- Check Kafka logs
-- Confirm topic exists
+#### Prometheus Errors
+1. Check configuration file syntax
+2. Verify Kafka Exporter is running
+3. Check port 9090 availability
 
-3. Prometheus Issues:
-- Check target status
-- Verify metrics are being scraped
-- Review configuration
+#### Grafana Issues
+1. Service status:
+```cmd
+sc query Grafana
+```
+2. Check logs:
+```cmd
+type "C:\Program Files\GrafanaLabs\grafana\data\log\grafana.log"
+```
 
-4. Grafana Issues:
-- Verify data source connection
-- Check query syntax
-- Review panel configuration
+### 11.2. Recovery Procedures
+1. Full System Restart:
+```cmd
+net stop Grafana
+taskkill /F /IM kafka-exporter.exe
+taskkill /F /IM prometheus.exe
+taskkill /F /IM java.exe
+```
+Then run `start-all.bat`
 
-### 7.2. Logging Locations
-- Kafka: C:\kafka\logs
-- Prometheus: C:\prometheus\data
-- Grafana: C:\Program Files\GrafanaLabs\grafana\data\log
+### 11.3. Support Information
+- Kafka Documentation: https://kafka.apache.org/documentation/
+- Prometheus Documentation: https://prometheus.io/docs/
+- Grafana Documentation: https://grafana.com/docs/
+- Salesforce API Documentation: https://developer.salesforce.com/docs
